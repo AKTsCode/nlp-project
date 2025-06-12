@@ -186,7 +186,6 @@ else:
             term_freqs = Counter(tokens)
             s_vocabulary = set(tokens)
 
-
             s = Summary(
                 id = id_,
                 title = title,
@@ -246,14 +245,6 @@ else:
 
 print("--- IDF Calculation Complete ---")
 
-# TF-IDF Vektor Dictionary
-# { 
-#   "32131": {                      -> Summary ID
-#              "cat": 0.003         -> TF-IDF Values for each word from vocabulary
-#              "dog": 0.004,
-#              "lasersword": 0.0}                 
-#   ....
-#
 
 
 # ==============================================================================
