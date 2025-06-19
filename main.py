@@ -14,6 +14,13 @@ from typing import Set
 from tqdm import tqdm #pip install tqdm
 from nltk.corpus import stopwords #pip install nltk
 
+from sklearn.preprocessing import MultiLabelBinarizer
+from sklearn.linear_model import LogisticRegression
+from sklearn.multiclass import OneVsRestClassifier
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score, classification_report, f1_score, precision_score, recall_score
+
+import joblib
 
 # ==============================================================================
 # --- Text Preprocessing Functions ---
@@ -119,7 +126,7 @@ else:
         for line in f:
             parts = line.strip().split("\t")
             if len(parts) < 2: # If not enough info
-                continue 
+                continue
 
             movie_id = parts[0]
             title = parts[2] if len(parts) > 2 else "" # Title is typically at index 2
@@ -295,3 +302,169 @@ else:
 # Display the dimensions of the TF-IDF matrix
 print(f"Dimension of TF-IDF Sparse Matrix: {tf_idf_sparse_matrix.shape}")
 print("--- TF-IDF Sparse Matrix Processing Complete ---")
+
+
+
+# ==============================================================================
+# --- Prepare Labels (y) for Multi-Label Classification ---
+# ==============================================================================
+
+print("\n--- Preparing Label Matrix (y) ---")
+
+
+# List of lists
+# Outer list contains index of all summaries (row of our TD-IDF Matrix)
+# Inner list contains genres for a summary
+genre_labels = [s.genres for s in summaries]
+
+
+# ===========================
+# Filtering rare Genres
+
+
+# Count the frequency for each genre
+# Flatter the list
+all_flat_genres_raw = [genre for sublist in genre_labels for genre in sublist]
+genre_counts_raw = Counter(all_flat_genres_raw)
+
+# Define threshold
+# need to delete genre_classifier_model.pkl after changing
+MIN_GENRE_FREQUENCY = 30
+
+# Create a set of genres that meet the threshold
+frequent_genres = {genre for genre, count in genre_counts_raw.items() if count >= MIN_GENRE_FREQUENCY}
+
+print(f"Original number of unique genres: {len(genre_counts_raw)}")
+print(f"Number of genres after filtering (min frequency >= {MIN_GENRE_FREQUENCY}): {len(frequent_genres)}")
+print(f"Top 20 most common genres (before filtering): {genre_counts_raw.most_common(20)}")
+
+# Filter the genre_labels lists: Keep only the genres considered 'frequent'
+filtered_genre_labels = []
+for movie_genres_list in genre_labels:
+    # New list of genres for this movie, containing only the 'frequent_genres'
+    current_movie_filtered_genres = [g for g in movie_genres_list if g in frequent_genres]
+    # Add the filtered list. Important: A movie might end up with an empty list
+    # if all its original genres were below the threshold. MultiLabelBinarizer can handle this.
+    filtered_genre_labels.append(current_movie_filtered_genres)
+
+
+# ===========================
+
+
+# MultiLabelBinarizer
+# This object will learn all unique genres present across all movies.
+mlb = MultiLabelBinarizer()
+
+# Transform the list of genre lists into a multi-hot-encoded (binary) matrix.
+# `fit_transform` first learns the unique classes (genres) and then transforms the input.
+# y matrix structure: rows = movie summaries, columns = unique genres, values = 1 or 0
+y = mlb.fit_transform(filtered_genre_labels) # use genre_labels if no filtering wanted
+
+# Save the MultiLabelBinarizer
+# joblib.dump(mlb, mlb_path)
+# print(f"MultiLabelBinarizer created and saved to {mlb_path}")
+
+print(f"Shape of label matrix (y): {y.shape}")
+# The shape should be (number of movies, number of unique genres).
+print(f"Unique genres learned by MLB (column order in y): {list(mlb.classes_)}")
+
+# Optional: Display the counts of each genre to understand genre distribution
+all_flat_genres = [genre for sublist in filtered_genre_labels for genre in sublist]
+genre_counts = Counter(all_flat_genres)
+print(f"Total unique genres after filtering: {len(genre_counts)}")
+print("Top 10 most common genres (after filtering):", genre_counts.most_common(10))
+
+
+print("--- Label Matrix (y) Preparation Complete ---")
+
+
+
+# ==============================================================================
+# --- Model Training (One-vs-Rest Logistic Regression) ---
+# ==============================================================================
+
+print("\n--- Starting Model Training ---")
+
+# Split data into training and testing sets
+# X is your TF-IDF sparse matrix, y is your multi-hot-encoded genre matrix.
+# test_size=0.2 means 20% of data will be used for testing, 80% for training.
+# random_state ensures reproducibility of the split.
+X_train, X_test, y_train, y_test = train_test_split(
+    tf_idf_sparse_matrix, y, test_size=0.2, random_state=42
+)
+print(f"Shape of X_train (training features): {X_train.shape}")
+print(f"Shape of X_test (testing features): {X_test.shape}")
+print(f"Shape of y_train (training labels): {y_train.shape}")
+print(f"Shape of y_test (testing labels): {y_test.shape}")
+
+model_path = "genre_classifier_model.pkl"
+
+if os.path.exists(model_path):
+    model = joblib.load(model_path)
+    print("Trained model loaded from .pkl file.")
+else:
+
+    # Initialize the OneVsRestClassifier model
+    # This wrapper takes a base classifier (here, LogisticRegression) and trains one instance
+    # of it for each target label (genre).
+    # solver='liblinear' is a good choice for smaller datasets and sparse data.
+    # max_iter increases the maximum number of iterations for convergence.
+    base_classifier = LogisticRegression(solver='liblinear', max_iter=500, random_state=42)
+    model = OneVsRestClassifier(base_classifier)
+
+    # Train the model
+    # The model learns the relationships between TF-IDF features and genres using the training data.
+    print("Training the OneVsRest Logistic Regression model...")
+    model.fit(X_train, y_train)
+    print("Model training complete.")
+
+    # Save the trained model
+    joblib.dump(model, model_path)
+    print(f"Trained model created and saved to {model_path}")
+
+# Make predictions on the test set
+# predict() returns binary predictions (0 or 1 for each genre).
+y_pred = model.predict(X_test)
+# predict_proba() returns probabilities (between 0 and 1 for each genre).
+y_proba = model.predict_proba(X_test)
+
+
+# Evaluate model performance
+# For multi-label classification, `accuracy_score` often reflects Jaccard similarity.
+# `classification_report` provides more detailed metrics (precision, recall, F1-score) per label.
+print("\n--- Model Evaluation ---")
+
+# Evaluate overall performance using common multi-label metrics
+# average='micro': Calculate metrics globally by counting the total true positives, false negatives and false positives.
+# average='macro': Calculate metrics for each label, and find their unweighted mean.
+# average='samples': Calculate metrics for each sample, and find their average.
+print(f"Micro F1-Score: {f1_score(y_test, y_pred, average='micro'):.4f}")
+print(f"Macro F1-Score: {f1_score(y_test, y_pred, average='macro'):.4f}")
+print(f"Micro Precision: {precision_score(y_test, y_pred, average='micro'):.4f}")
+print(f"Micro Recall: {recall_score(y_test, y_pred, average='micro'):.4f}")
+
+
+# Without filtering rare genres or genres which dont exist in the test data:
+# --- Model Evaluation ---
+# Micro F1-Score: 0.3791
+# Macro F1-Score: 0.0602
+# C:\Users\akt20\AppData\Local\Programs\Python\Python313\Lib\site-packages\sklearn\metrics\_classification.py:1706: UndefinedMetricWarning: F-score is ill-defined and being set to 0.0 in labels with no true nor predicted samples. Use `zero_division` parameter to control this behavior.
+# _warn_prf(average, modifier, f"{metric.capitalize()} is", result.shape[0])
+# Micro Precision: 0.5028
+# Micro Recall: 0.3042
+
+# Threshold = 10
+# # --- Model Evaluation ---
+# Micro F1-Score: 0.3798
+# Macro F1-Score: 0.0838
+# C:\Users\akt20\AppData\Local\Programs\Python\Python313\Lib\site-packages\sklearn\metrics\_classification.py:1706: UndefinedMetricWarning: F-score is ill-defined and being set to 0.0 in labels with no true nor predicted samples. Use `zero_division` parameter to control this behavior.
+# _warn_prf(average, modifier, f"{metric.capitalize()} is", result.shape[0])
+# Micro Precision: 0.5028
+# Micro Recall: 0.3051
+
+print("\nDetailed Classification Report (per genre):\n")
+# target_names are crucial here to see which genre corresponds to which row in the report.
+target_names = mlb.classes_
+print(classification_report(y_test, y_pred, target_names=target_names))
+
+print("--- Model Training and Evaluation Complete ---")
