@@ -8,19 +8,23 @@ import json
 import pickle
 import math
 import nltk
+from nltk.stem import WordNetLemmatizer
+from nltk.corpus import wordnet
 import numpy as np
 from scipy.sparse import lil_matrix, save_npz, load_npz
 from typing import Set
-from tqdm import tqdm #pip install tqdm
-from nltk.corpus import stopwords #pip install nltk
+from tqdm import tqdm
+from nltk.corpus import stopwords
 
 from sklearn.preprocessing import MultiLabelBinarizer
 from sklearn.linear_model import LogisticRegression
 from sklearn.multiclass import OneVsRestClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, classification_report, f1_score, precision_score, recall_score
+from sklearn.neighbors import NearestNeighbors
 
-import joblib
+
+
 
 # ==============================================================================
 # --- Text Preprocessing Functions ---
@@ -33,76 +37,50 @@ except LookupError:
     nltk.download("stopwords")
 stop_words = set(stopwords.words("english"))
 
-# create list of all words
+# Downloads for Lemmatization
+try:
+    nltk.data.find("corpora/wordnet")
+except LookupError:
+    nltk.download("wordnet")
+try:
+    nltk.data.find("corpora/omw-1.4")
+except LookupError:
+    nltk.download("omw-1.4")
+try:
+    nltk.data.find('taggers/averaged_perceptron_tagger')
+except LookupError:
+    nltk.download('averaged_perceptron_tagger')
+try:
+    nltk.data.find('taggers/averaged_perceptron_tagger_eng')
+except LookupError:
+    nltk.download('averaged_perceptron_tagger_eng')
+
+# Initialize global lemmatizer
+lemmatizer = WordNetLemmatizer()
+
+def get_wordnet_pos(word):
+    """Map NLTK POS tags to WordNet POS tags for accurate lemmatization."""
+    tag = nltk.pos_tag([word])[0][1][0].upper()
+    tag_dict = {"J": wordnet.ADJ,
+                "N": wordnet.NOUN,
+                "V": wordnet.VERB,
+                "R": wordnet.ADV}
+    return tag_dict.get(tag, wordnet.NOUN)
+
 def tokenzie(text: str) -> List[str]:
-    # remove numbers
-    text = re.sub(r"\d+","",text)
-
-    # remove punctuation
-    text = text.translate(str.maketrans("", "", string.punctuation))
-
-    # make big letters small
-    text = text.lower()
-
-    # creating list
+    """Tokenizes and cleans text, including number/punctuation removal, lowercasing, stopword filtering, and lemmatization."""
+    text = re.sub(r"\d+","",text) # Remove numbers
+    text = text.translate(str.maketrans("", "", string.punctuation)) # Remove punctuation
+    text = text.lower() # Convert to lowercase
     tokens = text.split()
+    tokens = [t for t in tokens if t.isalpha() and t not in stop_words] # Filter out non-alphabetic and stop words
+    lemmatized_tokens = [lemmatizer.lemmatize(t, get_wordnet_pos(t)) for t in tokens] # Lemmatize tokens
+    return lemmatized_tokens
 
-    # filter out stop words
-    tokens = [t for t in tokens if t not in stop_words]
-
-    return tokens
-    
-
-
-#  Function: delete duplicate words -> get sorted list of unique words
 def createVocabulary(words: List[str]) -> List[str]:
+    """Creates a sorted list of unique words from a list of tokens."""
     vocabulary = sorted(set(words))
     return list(vocabulary)
-
-
-
-
-# ==============================================================================
-# --- Corpus Tokenization and Vocabulary Creation ---
-# ==============================================================================
-
-print("--- Starting Corpus Tokenization and Vocabulary Creation ---")
-
-# Read plot_summaries.txt to get the raw corpus text
-with open ("raw/plot_summaries.txt", "r", encoding="utf-8") as file:
-    data = file.read()
-
-
-# Tokenize the entire corpus to get a list of all words
-corpus_tokens = tokenzie(data)
-
-# Create sorted vocabulary from the corpus tokens
-vocabulary = createVocabulary(corpus_tokens)
-
-
-print(f"Vocabulary Length after creating: {len(vocabulary)} words")
-print("First 50 words of the Vocabulary:")
-for i, token in enumerate(vocabulary[:50]):
-    print(f"  {i}: {token}")
-
-# without stopwords =  192454 words in vocabulary
-# with stopwords = 192592 (138 Stopwords)
-
-# Count word frequencies across the entire corpus
-word_counts = Counter(corpus_tokens)
-
-# Save word counts to a text file (unsorted)
-with open("word_counts.txt", "w", encoding="utf-8") as f:
-    for word, count in word_counts.items():
-        f.write(f"{word}: {count}\n")
-
-# Save word counts sorted by frequency (most common first)
-with open("word_counts_sorted.txt", "w", encoding="utf-8") as f:
-    for word, count in word_counts.most_common():
-        f.write(f"{word}: {count}\n")
-
-print("--- Corpus Tokenization and Vocabulary Creation Complete ---")
-
 
 
 
@@ -112,7 +90,6 @@ print("--- Corpus Tokenization and Vocabulary Creation Complete ---")
 
 print("\n--- Starting Movie Metadata Processing ---")
 
-# movie-metadata dictionary: {   "123": {     "title": "Inception",     "genres": ["Action", "Sci-Fi"]   } }
 movie_metadata_path = "movie_metadata.pkl"
 movie_metadata = {}
 
@@ -125,15 +102,13 @@ else:
     with open ("raw/movie.metadata.tsv", "r", encoding="utf-8") as f:
         for line in f:
             parts = line.strip().split("\t")
-            if len(parts) < 2: # If not enough info
+            if len(parts) < 2:
                 continue
-
             movie_id = parts[0]
-            title = parts[2] if len(parts) > 2 else "" # Title is typically at index 2
-            genres_raw = parts[-1] # Genres are typically the last field
-
+            title = parts[2] if len(parts) > 2 else ""
+            genres_raw = parts[-1]
             try:
-                genres = list(json.loads(genres_raw).values()) # not needed, optional
+                genres = list(json.loads(genres_raw).values())
             except:
                 genres = []
             movie_metadata[movie_id] = {
@@ -148,7 +123,6 @@ print("--- Movie Metadata Processing Complete ---")
 
 
 
-
 # ==============================================================================
 # --- Summary List Creation ---
 # ==============================================================================
@@ -157,9 +131,7 @@ print("\n--- Starting Summary List Processing ---")
 
 @dataclass
 class Summary:
-    """
-    Dataclass to hold all relevant information for a movie summary.
-    """
+    """Dataclass to hold all relevant information for a movie summary."""
     id: str
     title: str
     genres: List[str]
@@ -172,7 +144,6 @@ summaries_path = "summaries.pkl"
 summaries: List[Summary] = []
 
 if os.path.exists(summaries_path):
-    # Get summaries if already created
     with open("summaries.pkl", "rb") as f:
         summaries = pickle.load(f)
     print("Summaries loaded from .pkl file.")
@@ -183,7 +154,6 @@ else:
             parts = line.strip().split("\t")
             if len(parts) < 2:
                 continue
-
             id_ = parts[0]
             text = parts[1] if len(parts) > 1 else ""
 
@@ -203,7 +173,6 @@ else:
                 vocabulary = s_vocabulary
             )
             summaries.append(s)
-    # Save the complete list
     with open("summaries.pkl", "wb") as f:
         pickle.dump(summaries, f)
     print("summaries.pkl created.")
@@ -212,6 +181,122 @@ print(f"Total number of summaries processed: {len(summaries)}")
 print("--- Summary List Processing Complete ---")
 
 
+
+# ==============================================================================
+# --- Filtering small summaries ---
+# ==============================================================================
+
+MIN_SUMMARY_TOKENS = 100
+
+print(f"\n--- Filtering Short Summaries (Threshold: {MIN_SUMMARY_TOKENS} tokens) ---")
+initial_summary_count = len(summaries)
+print(f"Total summaries before length filtering: {initial_summary_count}")
+
+filtered_summaries_by_length = []
+skipped_by_length_count = 0
+
+for s in summaries:
+    if len(s.tokens) >= MIN_SUMMARY_TOKENS:
+        filtered_summaries_by_length.append(s)
+    else:
+        skipped_by_length_count += 1
+
+summaries = filtered_summaries_by_length
+
+print(f"Summaries filtered out due to short length (< {MIN_SUMMARY_TOKENS} tokens): {skipped_by_length_count}")
+print(f"Total summaries after filtering by length: {len(summaries)}")
+print("--- Short Summary Filtering Complete ---")
+
+# --- Saving the updated summaries (after length filtering) ---
+with open("summaries_length_filtered.pkl", "wb") as f:
+    pickle.dump(summaries, f)
+print("Updated summaries_length_filtered.pkl saved (after length filtering).")
+
+
+
+# ==============================================================================
+# --- Filter Summaries by Genre and Prepare Final Data Set ---
+# ==============================================================================
+
+print("\n--- Filtering Summaries by Genre Exclusions ---")
+
+EXCLUDED_GENRES = [
+    # Reasons for exclusion:
+    # - "Format/Style-based": Genres that describe the film's format or style rather than its primary thematic content.
+    #   (e.g., "Black-and-white", "Short Film", "Silent film", "Computer Animation", "Stop motion", "Art film", "Experimental film")
+    # - "Origin/Cultural-specific": Genres tied to a specific country or cultural background, potentially leading to bias or
+    #   less generalizable recommendations across a broader movie dataset if not handled specifically.
+    #   (e.g., "World cinema", "Japanese Movies", "Bollywood", "Chinese Movies", "Filipino Movies")
+    # - "Production/Budget-based": Categories related to production scale or type, not core narrative.
+    #   (e.g., "Indie", "Television movie", "B-movie")
+    # - "Niche/Meta/Very Specific Content": Genres that are too niche, describe the film's relationship to other media,
+    #   or refer to very specific sub-categories that might not be well-represented or distinct enough in summaries.
+    #   (e.g., "Film adaptation", "Cult", "Ensemble Film", "Pre-Code", "Adult", "Christian film", "Social issues")
+    # - "Overlapping/Broad Categories": Categories that are often covered by other, more specific genres
+    #   or are too broad to provide distinct information for a content-based system.
+    #   (e.g., "Documentary", "Animation", "Anime" - often have more specific sub-genres that are also present)
+    # - "Non-thematic/Contextual": Genres describing the context of the film rather than its narrative themes.
+    #   (e.g., "Culture & Society")
+    "World cinema", "Black-and-white", "Indie", "Short Film", "Animation",
+    "Japanese Movies", "Film adaptation", "Documentary", "Silent film",
+    "Bollywood", "Chinese Movies", "Cult", "Television movie", "B-movie",
+    "Art film", "Ensemble Film", "Anime", "Filipino Movies",
+    "Culture & Society", "Computer Animation", "Stop motion", "Pre-Code",
+    "Adult", "Christian film", "Experimental film", "Social issues"
+]
+
+final_summaries: List[Summary] = []
+
+for s in summaries:
+    valid_genres_for_summary = [genre for genre in s.genres if genre not in EXCLUDED_GENRES]
+    if valid_genres_for_summary: # Only keep summaries that still have valid genres
+        s.genres = valid_genres_for_summary
+        final_summaries.append(s)
+
+summaries = final_summaries # Update 'summaries' to the final filtered list
+
+print(f"Summaries filtered out due to genre exclusion: {initial_summary_count - len(summaries)}")
+print(f"Total summaries after all filtering (length and genre): {len(summaries)}")
+print("--- Genre Filtering Complete ---")
+
+
+# --- Saving the final summaries (after all filtering) ---
+with open("summaries_final.pkl", "wb") as f:
+    pickle.dump(summaries, f)
+print("Final summaries_final.pkl saved (after all filtering).")
+
+
+# ==============================================================================
+# --- Vocabulary Creation (AFTER ALL Summary Filtering) ---
+# ==============================================================================
+
+print("\n--- Starting Vocabulary Creation from Filtered Summaries ---")
+
+vocabulary_path = "vocabulary_filtered.pkl"
+vocabulary: List[str] = []
+
+if os.path.exists(vocabulary_path):
+    with open(vocabulary_path, "rb") as f:
+        vocabulary = pickle.load(f)
+    print("Filtered vocabulary loaded from .pkl file.")
+else:
+    print("Filtered vocabulary .pkl not found. Creating from filtered summaries...")
+    all_filtered_tokens = []
+    for s in summaries:
+        all_filtered_tokens.extend(s.tokens)
+
+    vocabulary = createVocabulary(all_filtered_tokens)
+
+    with open(vocabulary_path, "wb") as f:
+        pickle.dump(vocabulary, f)
+    print("Filtered vocabulary created and saved to .pkl file.")
+
+print(f"Vocabulary Length after filtering summaries: {len(vocabulary)} words")
+print("First 50 words of the Filtered Vocabulary:")
+for i, token in enumerate(vocabulary[:50]):
+    print(f"  {i}: {token}")
+
+print("--- Vocabulary Creation from Filtered Summaries Complete ---")
 
 
 # ==============================================================================
@@ -230,15 +315,20 @@ if os.path.exists(idf_path):
 else:
     print("IDF dictionary .pkl not found. Calculating IDF values...")
 
-    n = len(summaries) # Total number of summaries/docs
-    for token in vocabulary:
-        # Document Frequency (df): count in how many summaries the token appears
-        df = sum(1 for s in tqdm(summaries, desc=token) if token in s.vocabulary)
+    n = len(summaries)
 
-        # Inverse Document Frequency: IDF = log(n / df)
-        # IDF value shows how rare is the token in the corpus
-        idf = math.log(n / df)
+    # Step 1: Efficiently calculate document frequencies
+    print(f"Calculating document frequencies for {len(summaries)} summaries...")
+    doc_frequencies: Counter = Counter()
+    for s in tqdm(summaries, desc="Counting DFs"):
+        for token in s.vocabulary:
+            doc_frequencies[token] += 1
 
+    # Step 2: Calculate IDF values based on document frequencies
+    print(f"Calculating IDF values for {len(vocabulary)} words...")
+    for token in tqdm(vocabulary, desc="Calculating IDFs"):
+        df = doc_frequencies.get(token, 0)
+        idf = math.log(n / (df + 1)) # Add 1 to avoid division by zero for unseen words
         idf_dict[token] = idf
 
     with open(idf_path, "wb") as f:
@@ -253,7 +343,6 @@ else:
 print("--- IDF Calculation Complete ---")
 
 
-
 # ==============================================================================
 # --- TF-IDF Sparse Matrix Creation and Storage ---
 # ==============================================================================
@@ -265,12 +354,11 @@ vocabulary_to_idx = {word: i for i, word in enumerate(vocabulary)}
 num_docs = len(summaries)
 num_vocab = len(vocabulary)
 
-
 tf_idf_sparse_matrix_path = "tf_idf_sparse_matrix.npz"
 tf_idf_sparse_matrix = None
 
 if os.path.exists(tf_idf_sparse_matrix_path):
-    # Loaded sparse matrix will be in CSR format
+    # Load sparse matrix in CSR format (more efficient for computations)
     tf_idf_sparse_matrix = load_npz(tf_idf_sparse_matrix_path)
     print("TF-IDF sparse matrix loaded from .npz file.")
 else:
@@ -280,22 +368,25 @@ else:
     tf_idf_sparse_matrix = lil_matrix((num_docs, num_vocab), dtype=np.float32)
 
     # Iterate through each summary (row in the matrix)
-    # doc_idx = row index
     for doc_idx, s in tqdm(enumerate(summaries), total=num_docs, desc="Create TF-IDF Matrix"):
         # Iterate through words that actually appear in the current summary
-        for word, tf in s.term_freqs.items():
-            # Get the index of the word from the global vocabulary map
-            word_idx = vocabulary_to_idx[word]
-            idf = idf_dict.get(word, 0)
-            tf_idf = np.float32(tf * idf)
+        for word, tf_raw in s.term_freqs.items():
+            if word in vocabulary_to_idx: # Ensure the word is in the (filtered) vocabulary
+                word_idx = vocabulary_to_idx[word]
+                idf = idf_dict.get(word, 0)
 
-            if tf_idf > 0:
-                tf_idf_sparse_matrix[doc_idx, word_idx] = tf_idf
+                # Apply log normalization for TF
+                if tf_raw > 0:
+                    tf_scaled = 1 + math.log(tf_raw)
+                else:
+                    tf_scaled = 0
 
-    # Conert the LIL-Matrix to CSR (Compressed Sparse Row) Matrix format
-    # more efficient for mathematical operations ( matrix-vector multiplication, ect.)
+                tf_idf = np.float32(tf_scaled * idf)
+                if tf_idf > 0: # Only store non-zero TF-IDF values
+                    tf_idf_sparse_matrix[doc_idx, word_idx] = tf_idf
+
+    # Convert the LIL-Matrix to CSR (Compressed Sparse Row) format for efficient operations
     tf_idf_sparse_matrix = tf_idf_sparse_matrix.tocsr()
-
     save_npz(tf_idf_sparse_matrix_path, tf_idf_sparse_matrix)
     print(f"TF-IDF Sparse Matrix created")
 
@@ -304,167 +395,112 @@ print(f"Dimension of TF-IDF Sparse Matrix: {tf_idf_sparse_matrix.shape}")
 print("--- TF-IDF Sparse Matrix Processing Complete ---")
 
 
-
 # ==============================================================================
 # --- Prepare Labels (y) for Multi-Label Classification ---
 # ==============================================================================
 
-print("\n--- Preparing Label Matrix (y) ---")
+print("\n--- Starting Multi-Threshold Model Evaluation ---")
 
-
-# List of lists
-# Outer list contains index of all summaries (row of our TD-IDF Matrix)
-# Inner list contains genres for a summary
+# Extract genre labels directly from the already filtered summaries
 genre_labels = [s.genres for s in summaries]
 
-
-# ===========================
-# Filtering rare Genres
-
-
 # Count the frequency for each genre
-# Flatter the list
 all_flat_genres_raw = [genre for sublist in genre_labels for genre in sublist]
 genre_counts_raw = Counter(all_flat_genres_raw)
 
-# Define threshold
-# need to delete genre_classifier_model.pkl after changing
-MIN_GENRE_FREQUENCY = 30
+print(f"Original number of unique genres (before filtering): {len(genre_counts_raw)}")
+print(f"Top 40 most common genres (before filtering) and their counts:")
+for genre, count in genre_counts_raw.most_common(40):
+    print(f"  - {genre}: {count}")
+print("-" * 50)
 
-# Create a set of genres that meet the threshold
-frequent_genres = {genre for genre, count in genre_counts_raw.items() if count >= MIN_GENRE_FREQUENCY}
+# Define threshold values for the loop
+threshold_values = []
+threshold_values.extend(range(0, 501, 50))
+threshold_values.extend(range(600, 1001, 100))
+threshold_values.extend(range(1250, 2001, 250))
 
-print(f"Original number of unique genres: {len(genre_counts_raw)}")
-print(f"Number of genres after filtering (min frequency >= {MIN_GENRE_FREQUENCY}): {len(frequent_genres)}")
-print(f"Top 20 most common genres (before filtering): {genre_counts_raw.most_common(20)}")
+results = []
 
-# Filter the genre_labels lists: Keep only the genres considered 'frequent'
-filtered_genre_labels = []
-for movie_genres_list in genre_labels:
-    # New list of genres for this movie, containing only the 'frequent_genres'
-    current_movie_filtered_genres = [g for g in movie_genres_list if g in frequent_genres]
-    # Add the filtered list. Important: A movie might end up with an empty list
-    # if all its original genres were below the threshold. MultiLabelBinarizer can handle this.
-    filtered_genre_labels.append(current_movie_filtered_genres)
+for MIN_GENRE_FREQUENCY in threshold_values:
+    print(f"\n===== Evaluating with MIN_GENRE_FREQUENCY = {MIN_GENRE_FREQUENCY} =====")
 
+    frequent_genres = {genre for genre, count in genre_counts_raw.items() if count >= MIN_GENRE_FREQUENCY}
 
-# ===========================
+    print(f"Number of genres after filtering (min frequency >= {MIN_GENRE_FREQUENCY}): {len(frequent_genres)}")
 
+    current_iteration_genre_labels = []
+    for movie_genres_list in genre_labels:
+        current_movie_filtered_genres = [g for g in movie_genres_list if g in frequent_genres]
+        current_iteration_genre_labels.append(current_movie_filtered_genres)
 
-# MultiLabelBinarizer
-# This object will learn all unique genres present across all movies.
-mlb = MultiLabelBinarizer()
+    mlb = MultiLabelBinarizer()
+    y = mlb.fit_transform(current_iteration_genre_labels)
 
-# Transform the list of genre lists into a multi-hot-encoded (binary) matrix.
-# `fit_transform` first learns the unique classes (genres) and then transforms the input.
-# y matrix structure: rows = movie summaries, columns = unique genres, values = 1 or 0
-y = mlb.fit_transform(filtered_genre_labels) # use genre_labels if no filtering wanted
+    print(f"Total unique genres after filtering: {len(mlb.classes_)}")
 
-# Save the MultiLabelBinarizer
-# joblib.dump(mlb, mlb_path)
-# print(f"MultiLabelBinarizer created and saved to {mlb_path}")
+    if len(mlb.classes_) == 0:
+        print(f"No genres remaining for MIN_GENRE_FREQUENCY = {MIN_GENRE_FREQUENCY}. Skipping training.")
+        results.append({
+            'threshold': MIN_GENRE_FREQUENCY, 'num_genres': 0, 'micro_f1': 0.0,
+            'macro_f1': 0.0, 'micro_precision': 0.0, 'micro_recall': 0.0
+        })
+        continue
 
-print(f"Shape of label matrix (y): {y.shape}")
-# The shape should be (number of movies, number of unique genres).
-print(f"Unique genres learned by MLB (column order in y): {list(mlb.classes_)}")
-
-# Optional: Display the counts of each genre to understand genre distribution
-all_flat_genres = [genre for sublist in filtered_genre_labels for genre in sublist]
-genre_counts = Counter(all_flat_genres)
-print(f"Total unique genres after filtering: {len(genre_counts)}")
-print("Top 10 most common genres (after filtering):", genre_counts.most_common(10))
+    # Verify consistency of samples before splitting
+    if tf_idf_sparse_matrix.shape[0] != y.shape[0]:
+        print(f"!!! Inconsistency Warning: TF-IDF matrix has {tf_idf_sparse_matrix.shape[0]} samples, but y has {y.shape[0]} samples.")
+        print("This should not happen with the current code structure if filtering was done correctly.")
+        raise ValueError("Sample count mismatch between TF-IDF matrix and labels (y).")
 
 
-print("--- Label Matrix (y) Preparation Complete ---")
+    X_train, X_test, y_train, y_test = train_test_split(
+        tf_idf_sparse_matrix, y, test_size=0.2, random_state=42
+    )
+    print(f"Shape of X_train (training features): {X_train.shape}")
+    print(f"Shape of X_test (testing features): {X_test.shape}")
+    print(f"Shape of y_train (training labels): {y_train.shape}")
+    print(f"Shape of y_test (testing labels): {y_test.shape}")
 
-
-
-# ==============================================================================
-# --- Model Training (One-vs-Rest Logistic Regression) ---
-# ==============================================================================
-
-print("\n--- Starting Model Training ---")
-
-# Split data into training and testing sets
-# X is your TF-IDF sparse matrix, y is your multi-hot-encoded genre matrix.
-# test_size=0.2 means 20% of data will be used for testing, 80% for training.
-# random_state ensures reproducibility of the split.
-X_train, X_test, y_train, y_test = train_test_split(
-    tf_idf_sparse_matrix, y, test_size=0.2, random_state=42
-)
-print(f"Shape of X_train (training features): {X_train.shape}")
-print(f"Shape of X_test (testing features): {X_test.shape}")
-print(f"Shape of y_train (training labels): {y_train.shape}")
-print(f"Shape of y_test (testing labels): {y_test.shape}")
-
-model_path = "genre_classifier_model.pkl"
-
-if os.path.exists(model_path):
-    model = joblib.load(model_path)
-    print("Trained model loaded from .pkl file.")
-else:
-
-    # Initialize the OneVsRestClassifier model
-    # This wrapper takes a base classifier (here, LogisticRegression) and trains one instance
-    # of it for each target label (genre).
-    # solver='liblinear' is a good choice for smaller datasets and sparse data.
-    # max_iter increases the maximum number of iterations for convergence.
     base_classifier = LogisticRegression(solver='liblinear', max_iter=500, random_state=42)
     model = OneVsRestClassifier(base_classifier)
 
-    # Train the model
-    # The model learns the relationships between TF-IDF features and genres using the training data.
     print("Training the OneVsRest Logistic Regression model...")
     model.fit(X_train, y_train)
     print("Model training complete.")
 
-    # Save the trained model
-    joblib.dump(model, model_path)
-    print(f"Trained model created and saved to {model_path}")
+    y_pred = model.predict(X_test)
 
-# Make predictions on the test set
-# predict() returns binary predictions (0 or 1 for each genre).
-y_pred = model.predict(X_test)
-# predict_proba() returns probabilities (between 0 and 1 for each genre).
-y_proba = model.predict_proba(X_test)
+    print("\n--- Model Evaluation ---")
+    print(f"Used Genre Frequency Threshold: {MIN_GENRE_FREQUENCY}")
+    print(f"Number of Genres Considered after Filtering: {len(mlb.classes_)}")
 
+    micro_f1 = f1_score(y_test, y_pred, average='micro', zero_division=0)
+    macro_f1 = f1_score(y_test, y_pred, average='macro', zero_division=0)
+    micro_precision = precision_score(y_test, y_pred, average='micro', zero_division=0)
+    micro_recall = recall_score(y_test, y_pred, average='micro', zero_division=0)
 
-# Evaluate model performance
-# For multi-label classification, `accuracy_score` often reflects Jaccard similarity.
-# `classification_report` provides more detailed metrics (precision, recall, F1-score) per label.
-print("\n--- Model Evaluation ---")
+    print(f"Micro F1-Score: {micro_f1:.4f}")
+    print(f"Macro F1-Score: {macro_f1:.4f}")
+    print(f"Micro Precision: {micro_precision:.4f}")
+    print(f"Micro Recall: {micro_recall:.4f}")
 
-# Evaluate overall performance using common multi-label metrics
-# average='micro': Calculate metrics globally by counting the total true positives, false negatives and false positives.
-# average='macro': Calculate metrics for each label, and find their unweighted mean.
-# average='samples': Calculate metrics for each sample, and find their average.
-print(f"Micro F1-Score: {f1_score(y_test, y_pred, average='micro'):.4f}")
-print(f"Macro F1-Score: {f1_score(y_test, y_pred, average='macro'):.4f}")
-print(f"Micro Precision: {precision_score(y_test, y_pred, average='micro'):.4f}")
-print(f"Micro Recall: {recall_score(y_test, y_pred, average='micro'):.4f}")
+    results.append({
+        'threshold': MIN_GENRE_FREQUENCY,
+        'num_genres': len(mlb.classes_),
+        'micro_f1': micro_f1,
+        'macro_f1': macro_f1,
+        'micro_precision': micro_precision,
+        'micro_recall': micro_recall
+    })
 
+print("\n--- All Thresholds Evaluation Complete ---")
 
-# Without filtering rare genres or genres which dont exist in the test data:
-# --- Model Evaluation ---
-# Micro F1-Score: 0.3791
-# Macro F1-Score: 0.0602
-# C:\Users\akt20\AppData\Local\Programs\Python\Python313\Lib\site-packages\sklearn\metrics\_classification.py:1706: UndefinedMetricWarning: F-score is ill-defined and being set to 0.0 in labels with no true nor predicted samples. Use `zero_division` parameter to control this behavior.
-# _warn_prf(average, modifier, f"{metric.capitalize()} is", result.shape[0])
-# Micro Precision: 0.5028
-# Micro Recall: 0.3042
+output_results_path = "model_evaluation_results.json"
+with open(output_results_path, "w", encoding="utf-8") as f:
+    json.dump(results, f, indent=4)
+print(f"Model evaluation results saved to {output_results_path}")
 
-# Threshold = 10
-# # --- Model Evaluation ---
-# Micro F1-Score: 0.3798
-# Macro F1-Score: 0.0838
-# C:\Users\akt20\AppData\Local\Programs\Python\Python313\Lib\site-packages\sklearn\metrics\_classification.py:1706: UndefinedMetricWarning: F-score is ill-defined and being set to 0.0 in labels with no true nor predicted samples. Use `zero_division` parameter to control this behavior.
-# _warn_prf(average, modifier, f"{metric.capitalize()} is", result.shape[0])
-# Micro Precision: 0.5028
-# Micro Recall: 0.3051
-
-print("\nDetailed Classification Report (per genre):\n")
-# target_names are crucial here to see which genre corresponds to which row in the report.
-target_names = mlb.classes_
-print(classification_report(y_test, y_pred, target_names=target_names))
-
-print("--- Model Training and Evaluation Complete ---")
+print("\n--- Collected Results Across Thresholds ---")
+for res in results:
+    print(f"Threshold: {res['threshold']:<6}, Genres: {res['num_genres']:<4}, Micro F1: {res['micro_f1']:.4f}, Macro F1: {res['macro_f1']:.4f}, Micro P: {res['micro_precision']:.4f}, Micro R: {res['micro_recall']:.4f}")
