@@ -13,6 +13,8 @@ from nltk.corpus import wordnet
 import numpy as np
 from scipy.sparse import lil_matrix, save_npz, load_npz
 from typing import Set
+
+from sklearn.metrics.pairwise import cosine_similarity
 from tqdm import tqdm
 from nltk.corpus import stopwords
 
@@ -504,3 +506,71 @@ print(f"Model evaluation results saved to {output_results_path}")
 print("\n--- Collected Results Across Thresholds ---")
 for res in results:
     print(f"Threshold: {res['threshold']:<6}, Genres: {res['num_genres']:<4}, Micro F1: {res['micro_f1']:.4f}, Macro F1: {res['macro_f1']:.4f}, Micro P: {res['micro_precision']:.4f}, Micro R: {res['micro_recall']:.4f}")
+
+
+
+
+# ==============================================================================
+# --- Content-Based Movie Recommendation (Cosine Similarity) ---
+# ==============================================================================
+
+cosine_sim_matrix = cosine_similarity(tf_idf_sparse_matrix)
+
+def get_recommendations(movie_id: str, cosine_sim_matrix, summaries: List[Summary], top_k: int = 10):
+    """
+    Recommends top_k similar movies based on cosine similarity of TF-IDF vectors.
+
+    Args:
+        movie_id (str): The ID of the movie for which to find recommendations.
+        cosine_sim_matrix (np.array): The pre-calculated cosine similarity matrix.
+        summaries (List[Summary]): A list of Summary dataclass objects containing movie metadata.
+        top_k (int): The number of top similar movies to recommend.
+
+    Returns:
+        List[str]: A list of recommended movie IDs.
+    """
+    # Create a mapping from movie_id to its index in the summaries list (and TF-IDF matrix)
+    movie_id_to_idx = {s.id: i for i, s in enumerate(summaries)}
+
+    if movie_id not in movie_id_to_idx:
+        print(f"Error: Movie with ID '{movie_id}' not found in the dataset.")
+        return []
+
+    idx = movie_id_to_idx[movie_id]
+    original_movie_title = summaries[idx].title
+    original_movie_genres = summaries[idx].genres
+
+    # Get the pairwise similarity scores for the given movie with all other movies
+    # Enumerate to keep track of original indices
+    sim_scores = list(enumerate(cosine_sim_matrix[idx]))
+
+    # Sort the movies based on the similarity scores in descending order
+    # We slice from 1 to top_k+1 to exclude the movie itself (similarity with itself is 1)
+    sim_scores = sorted(sim_scores, key=lambda x: x[1], reverse=True)[1:top_k+1]
+
+    print(f"\n--- Top {top_k} Recommendations for '{original_movie_title}' (ID: {movie_id}, Genres: {', '.join(original_movie_genres)}) ---")
+    recommended_movie_ids = []
+    for i, (rec_idx, similarity_score) in enumerate(sim_scores):
+        rec_movie_id = summaries[rec_idx].id
+        rec_movie_title = summaries[rec_idx].title
+        rec_movie_genres = summaries[rec_idx].genres
+
+        # Calculate genre overlap for qualitative assessment
+        common_genres = set(original_movie_genres).intersection(set(rec_movie_genres))
+        genre_overlap_str = f"Genre Overlap: {', '.join(common_genres)}" if common_genres else "Genre Overlap: None"
+
+        print(f"{i+1}. '{rec_movie_title}' (ID: {rec_movie_id})")
+        print(f"   - Similarity Score: {similarity_score:.4f}")
+        print(f"   - Genres: {', '.join(rec_movie_genres)}")
+        print(f"   - {genre_overlap_str}\n")
+        recommended_movie_ids.append(rec_movie_id)
+
+    return recommended_movie_ids
+
+# Find a sample movie to get recommendations for
+# WICHTIG: Dieser Aufruf muss NACH der Definition von 'summaries' und 'cosine_sim_matrix' stehen.
+if summaries:
+    sample_movie_id = summaries[10].id # Picking the 11th movie for demonstration
+    get_recommendations(sample_movie_id, cosine_sim_matrix, summaries, top_k=5)
+else:
+    print("No summaries available to generate recommendations.")
