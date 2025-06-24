@@ -140,3 +140,69 @@ To visualize the results of the multi-threshold model evaluation, run the `vizua
 
 * **Model Metrics Across Different Genre Frequency Thresholds:** Displays Micro F1, Macro F1, Micro Precision, and Micro Recall as lines, illustrating their trends as the minimum genre frequency threshold increases.
 * **Number of Genres Considered at Different Frequency Thresholds:** Shows how the number of included genres decreases with higher frequency thresholds, providing context for the performance metrics.
+
+While working on the project and following the origional pipeline we proposed we were not seeing good results. So, we decided to look for other approaches
+ which might provide better results. The main2.py file is the implementation of those different approaches.
+# Methodology Deviations: Proposal vs Implementation Analysis
+
+## Key Deviations from Original Proposal
+
+### 1. Machine Learning Algorithm Change
+
+| Aspect | Proposal | Implementation |
+|--------|----------|----------------|
+| Algorithm | Logistic Regression | Linear Support Vector Machine (LinearSVC) |
+| Strategy | One-vs-Rest Logistic Regression | One-vs-Rest LinearSVC |
+
+**Reasoning for Change:**
+
+- **Better Performance**: SVM typically outperforms logistic regression on high-dimensional, sparse text data
+- **Robustness**: LinearSVC is specifically optimized for text classification tasks
+- **Class Imbalance**: The class_weight='balanced' parameter in SVM handles imbalanced genre distribution better than standard logistic regression
+- **Scalability**: LinearSVC scales better with large vocabulary sizes common in NLP tasks
+- **Research Evidence**: Literature shows SVM often achieves superior results for multi-label text classification
+
+### 2. Feature Extraction Enhancement
+
+| Aspect | Proposal | Implementation |
+|--------|----------|----------------|
+| Method | TF-IDF only | TF-IDF + Sentence Embeddings (dual approach) |
+| Approach | Traditional bag-of-words | Modern transformer-based embeddings |
+
+**Reasoning for Enhancement:**
+
+- **Semantic Understanding**: Sentence embeddings capture semantic meaning beyond keyword matching
+- **State-of-the-Art**: Transformer models (all-MiniLM-L6-v2) represent current best practices in NLP
+- **Better Representations**: Dense embeddings often outperform sparse TF-IDF for similarity tasks
+- **Flexibility**: Code allows switching between traditional and modern approaches
+- **Future-Proofing**: The Embedding approach is more aligned with current NLP trends
+
+### 3. Recommendation System Implementation
+
+| Aspect | Proposal | Implementation |
+|--------|----------|----------------|
+| Method | Cosine Similarity on TF-IDF | Nearest Neighbors with Cosine Metric |
+| Computation | Manual similarity computation | Scikit-learn's optimized NearestNeighbors |
+
+**Reasoning for Change:**
+
+- **Efficiency**: NearestNeighbors is highly optimized for similarity search
+- **Scalability**: Better performance on large datasets
+- **Flexibility**: Can easily change distance metrics or number of neighbors
+- **Memory Efficiency**: Avoids computing the full pairwise similarity matrix
+- **Industry Standard**: More commonly used in production recommendation systems
+
+## Performance Analysis
+
+### Metrics by Minimum Count Threshold
+
+![Metrics by min_count](graphs/Figure_1.png)
+
+The graph above demonstrates the improvement in classification performance metrics as the minimum word frequency threshold increases. Key observations:
+
+- **Precision (green)**: Maintains consistently high performance (~0.52) across all frequency thresholds, showing model stability
+- **Micro F1 (blue)** and **Macro F1 (orange)**: Show steady improvement as minimum count increases, with micro F1 reaching ~0.52 and macro F1 reaching ~0.47 at higher thresholds
+- **Recall (red)**: Demonstrates gradual improvement from ~0.39 to ~0.52 as frequency threshold increases
+- **Optimal Performance**: All metrics converge around min_count=1500-2000, indicating that filtering low-frequency words significantly improves classification quality
+
+This analysis supports our implementation choices by showing that careful feature selection (removing low-frequency terms) leads to better model performance across all evaluation metrics.
