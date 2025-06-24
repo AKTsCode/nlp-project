@@ -142,7 +142,7 @@ To visualize the results of the multi-threshold model evaluation, run the `vizua
 * **Number of Genres Considered at Different Frequency Thresholds:** Shows how the number of included genres decreases with higher frequency thresholds, providing context for the performance metrics.
 
 # Methodology Deviations: Proposal vs Implementation Analysis
-###While working on the project and following the original pipeline we proposed, we did not observe satisfactory results. Therefore, we explored alternative approaches that might yield better performance. The main2.py file contains the implementation of these alternative methods.
+### While working on the project and following the original pipeline we proposed, we did not observe satisfactory results. Therefore, we explored alternative approaches that might yield better performance. The main2.py file contains the implementation of these alternative methods.
 ## Key Deviations from Original Proposal
 
 ### 1. Machine Learning Algorithm Change
