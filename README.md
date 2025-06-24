@@ -136,10 +136,19 @@ Deleting these files ensures the script regenerates them with your latest change
 
 ## 10. Visualizations
 
-To visualize the results of the multi-threshold model evaluation, run the `vizualization.py` script. It will load data from `model_evaluation_results.json` and generate plots showing:
+### Model Metrics Across Different Genre Frequency Thresholds and filtered genres & summaries
 
-* **Model Metrics Across Different Genre Frequency Thresholds:** Displays Micro F1, Macro F1, Micro Precision, and Micro Recall as lines, illustrating their trends as the minimum genre frequency threshold increases.
-* **Number of Genres Considered at Different Frequency Thresholds:** Shows how the number of included genres decreases with higher frequency thresholds, providing context for the performance metrics.
+![Model Metrics Across Different Genre Frequency Thresholds (filtered genres & filtered summaries)](graphs/Figure_2.png)
+
+The graph above illustrates the evolution of classification performance metrics as the minimum genre frequency threshold increases, following the application of specific genre exclusions and the filtering of short summaries.
+
+-   **Micro Precision (green)**: Demonstrates exceptionally high and consistent performance, starting at approximately 0.65 and slightly increasing to about 0.66 at higher thresholds (from 1250 onwards). This indicates a very stable ability of the model to correctly predict relevant labels, even with a large number of genres.
+-   **Micro F1-Score (blue)**: Shows a steady improvement from an initial value of approximately 0.45 at a threshold of 0 to over 0.58 at 1750/2000. This suggests a good balance between precision and recall, which improves with increased filtering of rare genres.
+-   **Macro F1-Score (orange)**: Exhibits the most significant improvement, starting from a very low value of 0.06 at threshold 0 and rising to over 0.55 at 1750/2000. This drastic increase highlights how strongly rare genres initially impact the model and the importance of their filtering to achieve balanced performance across all genres.
+-   **Micro Recall (red)**: Shows a gradual improvement from approximately 0.35 to about 0.53 at 1750/2000. This indicates that the model can correctly identify more relevant genres as filtering increases.
+-   **Optimal Performance**: All metrics, especially Micro F1, Macro F1, and Recall, converge and stabilize at thresholds between 1750 and 2000. At these thresholds, the number of considered genres dramatically reduces from an original 328 to just 10 genres. This confirms that focusing on highly frequent and relevant genres significantly enhances classification quality.
+
+This analysis underscores the effectiveness of our preprocessing and filtering strategies (length filtering and specific genre exclusions combined with minimum genre frequency filtering), as they lead to significantly improved and more robust model performance across all evaluation metrics. Notably, the total number of summaries used for training was reduced from an initial **42,306** to **21,377** after filtering for length (summaries shorter than 100 tokens were removed), and further to **20,338** after excluding movies that contained only specified "noisy" or less relevant genres. This reduction in data quantity highlights the trade-off for improved data quality and relevance, leading to cleaner TF-IDF representations.
 
 # Methodology Deviations: Proposal vs Implementation Analysis
 ### While working on the project and following the original pipeline we proposed, we did not observe satisfactory results. Therefore, we explored alternative approaches that might yield better performance. The main2.py file contains the implementation of these alternative methods.
@@ -203,19 +212,6 @@ The graph above demonstrates the improvement in classification performance metri
 - **Recall (red)**: Demonstrates gradual improvement from ~0.39 to ~0.52 as frequency threshold increases
 - **Optimal Performance**: All metrics converge around min_count=1500-2000, indicating that filtering low-frequency words significantly improves classification quality
 
-This analysis supports our implementation choices by showing that careful feature selection (removing low-frequency terms) leads to better model performance across all evaluation metrics.
 
 
-### Model Metrics Across Different Genre Frequency Thresholds and filtered genres & summaries
 
-![Model Metrics Across Different Genre Frequency Thresholds (filtered genres & filtered summaries)](graphs/Figure_2.png)
-
-The graph above illustrates the evolution of classification performance metrics as the minimum genre frequency threshold increases, following the application of specific genre exclusions and the filtering of short summaries.
-
--   **Micro Precision (green)**: Demonstrates exceptionally high and consistent performance, starting at approximately 0.65 and slightly increasing to about 0.66 at higher thresholds (from 1250 onwards). This indicates a very stable ability of the model to correctly predict relevant labels, even with a large number of genres.
--   **Micro F1-Score (blue)**: Shows a steady improvement from an initial value of approximately 0.45 at a threshold of 0 to over 0.58 at 1750/2000. This suggests a good balance between precision and recall, which improves with increased filtering of rare genres.
--   **Macro F1-Score (orange)**: Exhibits the most significant improvement, starting from a very low value of 0.06 at threshold 0 and rising to over 0.55 at 1750/2000. This drastic increase highlights how strongly rare genres initially impact the model and the importance of their filtering to achieve balanced performance across all genres.
--   **Micro Recall (red)**: Shows a gradual improvement from approximately 0.35 to about 0.53 at 1750/2000. This indicates that the model can correctly identify more relevant genres as filtering increases.
--   **Optimal Performance**: All metrics, especially Micro F1, Macro F1, and Recall, converge and stabilize at thresholds between 1750 and 2000. At these thresholds, the number of considered genres dramatically reduces from an original 328 to just 10 genres. This confirms that focusing on highly frequent and relevant genres significantly enhances classification quality.
-
-This analysis underscores the effectiveness of our preprocessing and filtering strategies (length filtering and specific genre exclusions combined with minimum genre frequency filtering), as they lead to significantly improved and more robust model performance across all evaluation metrics. Notably, the total number of summaries used for training was reduced from an initial **42,306** to **21,377** after filtering for length (summaries shorter than 100 tokens were removed), and further to **20,338** after excluding movies that contained only specified "noisy" or less relevant genres. This reduction in data quantity highlights the trade-off for improved data quality and relevance, leading to cleaner TF-IDF representations.
